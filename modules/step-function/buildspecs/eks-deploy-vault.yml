@@ -1,0 +1,33 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.9
+    commands:
+      - echo "Installing kubectl and helm..."
+      - curl -sLO "https://dl.k8s.io/release/v1.31.0/bin/linux/amd64/kubectl"
+      - install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+      - curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+  pre_build:
+    commands:
+      - echo "Checking AWS identity"
+      - aws sts get-caller-identity
+      - echo "Updating kubeconfig"
+      - aws eks update-kubeconfig --region eu-central-1 --name dev-edc-cluster
+      - export KUBECONFIG=/root/.kube/config
+      - echo "Testing cluster access..."
+      - kubectl get ns
+
+
+  build:
+    commands:
+      - echo "Deploying Vault Helm chart in namespace 'dev-edc'..."
+      - helm repo add hashicorp https://helm.releases.hashicorp.com
+      - helm repo update
+      - helm upgrade --install vault hashicorp/vault --namespace dev-edc --set server.dataStorage.storageClass=gp2
+
+  post_build:
+    commands:
+      - echo "Vault deployment finished."

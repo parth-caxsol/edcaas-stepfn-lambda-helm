@@ -1,0 +1,24 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - echo "Installing kubectl 1.31.0"
+      - curl -sLO "https://dl.k8s.io/release/v1.31.0/bin/linux/amd64/kubectl"
+      - install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+  pre_build:
+    commands:
+      - kubectl version --client
+      - aws eks update-kubeconfig --name "dev-edc-cluster" --region "eu-central-1"
+  build:
+    commands:
+      - echo "===> Creating namespace if not exists..."
+      - if kubectl get namespace "dev-edc" >/dev/null 2>&1; then
+          echo "Namespace dev-edc already exists";
+        else
+          kubectl create namespace "dev-edc";
+        fi
+artifacts:
+  files:
+    - '**/*'
+  discard-paths: yes
