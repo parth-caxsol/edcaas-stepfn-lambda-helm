@@ -81,6 +81,6 @@ module "deployment_pipeline" {
   source      = "./modules/step-function"
   environment = var.environment
   region      = var.region
-
+  github_token = var.github_token
   depends_on = [module.eks] 
 }

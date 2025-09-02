@@ -1,0 +1,29 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.9
+    commands:
+      - echo "Installing kubectl and helm..."
+      - curl -sLO "https://dl.k8s.io/release/v1.31.0/bin/linux/amd64/kubectl"
+      - install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+      - curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  pre_build:
+    commands:
+      - echo "Updating kubeconfig"
+      - aws eks update-kubeconfig --region eu-central-1 --name dev-edc-cluster
+      - kubectl version --client
+      - helm version
+  build:
+    commands:
+      - echo "Deploying tractusx Helm chart in namespace 'dev-edc'..."
+      - git clone https://${GITHUB_TOKEN}@github.com/mhp-emu-aws-foundation/tractusx-connector.git
+      - cd tractusx-connector/charts/tractusx-connector
+      - helm repo add bitnami https://charts.bitnami.com/bitnami
+      - helm repo update
+      - helm dependency build
+      - helm upgrade txedc . -f values.yaml -n dev-edc
+  post_build:
+    commands:
+      - echo "Tractusx deployment finished."

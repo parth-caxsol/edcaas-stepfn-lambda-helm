@@ -15,3 +15,9 @@ variable "region" {
   type        = string
   default     = "eu-central-1"
 }
+
+variable "github_token" {
+  description = "GitHub token for accessing private repositories"
+  type        = string
+  sensitive   = true
+}

@@ -9,3 +9,4 @@ variable "private_subnet_2_cidr" {}
 variable "private_subnet_3_cidr" {}
 variable "k8s_version" {}
 variable "instance_types" {}
+variable "github_token" {}

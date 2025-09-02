@@ -67,7 +67,9 @@ resource "aws_iam_policy" "lambda_codebuild_policy" {
         ],
         Resource = [
           "arn:aws:codebuild:eu-central-1:${data.aws_caller_identity.current.account_id}:project/eks-admin-ops",
-          "arn:aws:codebuild:eu-central-1:${data.aws_caller_identity.current.account_id}:project/eks-deploy-vault"
+          "arn:aws:codebuild:eu-central-1:${data.aws_caller_identity.current.account_id}:project/eks-deploy-vault",
+          "arn:aws:codebuild:eu-central-1:${data.aws_caller_identity.current.account_id}:project/tractusx-helm-deploy"
+
         ]
       }
     ]
@@ -112,7 +114,9 @@ resource "aws_iam_policy" "codebuild_base_policy" {
           "arn:aws:logs:eu-central-1:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/eks-admin-ops",
           "arn:aws:logs:eu-central-1:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/eks-admin-ops:*",
           "arn:aws:logs:eu-central-1:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/eks-deploy-vault",
-          "arn:aws:logs:eu-central-1:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/eks-deploy-vault:*"
+          "arn:aws:logs:eu-central-1:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/eks-deploy-vault:*",
+          "arn:aws:logs:eu-central-1:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/tractusx-helm-deploy",
+          "arn:aws:logs:eu-central-1:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/tractusx-helm-deploy:*"
         ],
         Action = [
           "logs:CreateLogGroup",
@@ -234,6 +238,33 @@ resource "aws_codebuild_project" "eks_deploy_vault" {
 }
 
 
+
+resource "aws_codebuild_project" "tractusx_helm_deploy" {
+  name         = "tractusx-helm-deploy"
+  service_role = aws_iam_role.codebuild_role.arn
+
+  environment {
+    compute_type    = "BUILD_GENERAL1_SMALL"
+    image           = "aws/codebuild/standard:5.0"
+    type            = "LINUX_CONTAINER"
+    privileged_mode = true
+    environment_variable {
+      name  = "GITHUB_TOKEN"
+      value = var.github_token  # you can store this in SSM/Secrets Manager
+      type  = "PLAINTEXT"
+    }
+  }
+
+  source {
+    type      = "NO_SOURCE"
+    buildspec = file("${path.module}/buildspecs/tractusx-helm-deploy.yml")
+  }
+
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
+}
+
 #################################
 # Lambda Packaging
 #################################
@@ -247,6 +278,12 @@ data "archive_file" "eks_trigger_vault_deployment" {
   type        = "zip"
   source_dir  = "${path.module}/lambda_src/eks_trigger_vault_deployment"
   output_path = "${path.module}/lambda_src/eks_trigger_vault_deployment.zip"
+}
+
+data "archive_file" "trigger_tractusx_deploy" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda_src/trigger_tractusx_deploy"
+  output_path = "${path.module}/lambda_src/trigger_tractusx_deploy.zip"
 }
 
 
@@ -281,6 +318,23 @@ resource "aws_lambda_function" "eks_trigger_vault_deployment" {
   environment {
     variables = {
       CODEBUILD_PROJECT_NAME = aws_codebuild_project.eks_deploy_vault.name
+    }
+  }
+}
+
+
+resource "aws_lambda_function" "trigger_tractusx_deploy" {
+  function_name = "trigger-tractusx-deploy"
+  handler       = "lambda_function.lambda_handler"
+  runtime       = "python3.9"
+  role          = aws_iam_role.lambda_role.arn
+
+  filename         = data.archive_file.trigger_tractusx_deploy.output_path
+  source_code_hash = data.archive_file.trigger_tractusx_deploy.output_base64sha256
+
+  environment {
+    variables = {
+      CODEBUILD_PROJECT_NAME = aws_codebuild_project.tractusx_helm_deploy.name
     }
   }
 }
@@ -367,7 +421,7 @@ resource "aws_sfn_state_machine" "edc_deployment" {
 
   definition = <<EOF
 {
-  "Comment": "Deploy Namespace and Vault using CodeBuild triggered by Lambda",
+  "Comment": "Deploy Namespace, Vault, and TractusX using CodeBuild triggered by Lambda",
   "StartAt": "CreateNamespace",
   "States": {
     "CreateNamespace": {
@@ -386,9 +440,19 @@ resource "aws_sfn_state_machine" "edc_deployment" {
         "FunctionName": "${aws_lambda_function.eks_trigger_vault_deployment.arn}",
         "Payload": {}
       },
+      "Next": "DeployTractusX"
+    },
+    "DeployTractusX": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${aws_lambda_function.trigger_tractusx_deploy.arn}",
+        "Payload": {}
+      },
       "End": true
     }
   }
 }
 EOF
 }
+
